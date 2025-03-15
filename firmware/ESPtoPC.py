@@ -1,5 +1,6 @@
 import bluetooth
 import threading
+import time
 
 # Global dictionary to map device addresses to IDs
 device_ids = {}
@@ -8,18 +9,29 @@ def handle_connection(addr, device_id):
     """Connect to a device, send its assigned ID, and print incoming pitch data."""
     print(f"[{addr}] Attempting connection...")
     sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
+    sock.settimeout(10)  # set a timeout for socket operations
     try:
-        # Connect using RFCOMM on channel 1 (default for BluetoothSerial)
-        sock.connect((addr, 1))
+        # Use connect_ex() to get an error code instead of raising an exception immediately.
+        err = sock.connect_ex((addr, 1))
+        if err != 0:
+            print(f"[{addr}] Initial connection failed with error code: {err}")
+            sock.close()
+            return
+        # Allow a short delay for the connection to stabilize.
+        time.sleep(1)
         print(f"[{addr}] Connected successfully with assigned ID {device_id}.")
         
         # Broadcast the assigned ID to the ESP32
         id_message = f"Your ID is {device_id}\n"
-        sock.send(id_message)
+        sock.send(id_message.encode('utf-8'))
         print(f"[{addr}] Sent ID message: {id_message.strip()}")
 
         while True:
-            data = sock.recv(1024)  # Receive up to 1024 bytes
+            try:
+                data = sock.recv(1024)  # Receive up to 1024 bytes
+            except bluetooth.btcommon.BluetoothError as e:
+                print(f"[{addr}] Receive error: {e}")
+                break
             if not data:
                 break
             # Assuming the data is sent as a UTF-8 string
@@ -56,7 +68,7 @@ def main():
     # Keep the main thread running as long as there are active connections
     try:
         while True:
-            pass
+            time.sleep(1)
     except KeyboardInterrupt:
         print("Exiting...")
 
