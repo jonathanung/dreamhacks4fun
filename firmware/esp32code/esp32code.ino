@@ -5,8 +5,8 @@
 #include <math.h>
 
 // --- Pin assignments ---
-#define LED1_PIN 33
-#define LED2_PIN 32
+#define LED1_PIN 33   // Represents bit 0 (LSB)
+#define LED2_PIN 32   // Represents bit 1
 #define BUTTON_PIN 27    
 #define IR_SENSOR_PIN 26 // Stub for IR sensor
 #define SPEAKER_PIN 25   
@@ -25,9 +25,16 @@ Adafruit_MPU6050 mpu;
 const int TONE_FREQUENCY = 1000;   // 1 kHz tone
 const int TONE_DURATION = 200;     // duration in milliseconds
 
-// --- LED timing ---
-unsigned long lastLedToggleTime = 0;
-bool ledsOn = false;
+// Global variable for device ID (-1 means not set yet)
+int deviceID = -1;
+
+// Function to update LED outputs based on deviceID
+// LED1 = bit 0, LED2 = bit 1
+void updateLEDsWithID() {
+  // Display the deviceID in binary on LED1 and LED2.
+  digitalWrite(LED1_PIN, (deviceID & 0x01) ? HIGH : LOW);
+  digitalWrite(LED2_PIN, (deviceID & 0x02) ? HIGH : LOW);
+}
 
 void setup() {
   Serial.begin(115200);
@@ -61,7 +68,7 @@ void setup() {
 
   // --- Bluetooth Serial Setup ---
   // Start Bluetooth Serial with a device name.
-  if(!SerialBT.begin("ESP32_BT_Device")) {
+  if (!SerialBT.begin("ESP32_BT_Device")) {
     Serial.println("An error occurred initializing Bluetooth");
   } else {
     Serial.println("Bluetooth initialized. Waiting for connections...");
@@ -69,14 +76,35 @@ void setup() {
 }
 
 void loop() {
-  unsigned long currentMillis = millis();
-
-  // --- Flash the LEDs every second ---
-  if(currentMillis - lastLedToggleTime >= 1000) {
-    lastLedToggleTime = currentMillis;
-    ledsOn = !ledsOn;
-    digitalWrite(LED1_PIN, ledsOn ? HIGH : LOW);
-    digitalWrite(LED2_PIN, ledsOn ? HIGH : LOW);
+  // --- Check if we have received our ID from Bluetooth ---
+  if (SerialBT.available()) {
+    String incoming = SerialBT.readStringUntil('\n');
+    incoming.trim();
+    Serial.print("Received via Bluetooth: ");
+    Serial.println(incoming);
+    // Look for the expected ID message format
+    if (incoming.startsWith("Your ID is ")) {
+      String idStr = incoming.substring(String("Your ID is ").length());
+      int id = idStr.toInt();
+      deviceID = id;
+      Serial.print("Assigned deviceID: ");
+      Serial.println(deviceID);
+    }
+  }
+  
+  // --- Display ID on LEDs ---
+  if (deviceID >= 0) {
+    updateLEDsWithID();
+  } else {
+    // If no ID yet, flash both LEDs as a waiting indicator.
+    static unsigned long lastToggle = 0;
+    static bool toggleState = false;
+    if (millis() - lastToggle > 500) {
+      lastToggle = millis();
+      toggleState = !toggleState;
+      digitalWrite(LED1_PIN, toggleState ? HIGH : LOW);
+      digitalWrite(LED2_PIN, toggleState ? HIGH : LOW);
+    }
   }
 
   // --- Check Button for tone output ---
@@ -102,11 +130,11 @@ void loop() {
   Serial.println("°");
   
   // --- Transmit pitch data over Bluetooth Serial ---
-  // This will send the data to all connected Bluetooth clients.
+  // This will send the pitch to any connected Bluetooth clients.
   char pitchStr[10];
   dtostrf(pitch, 4, 2, pitchStr);  // Format the pitch value as a string
   SerialBT.println(pitchStr);
   
-  // Wait a short interval before repeating.
+  // Short delay before repeating the loop.
   delay(500);
 }
