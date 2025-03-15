@@ -8,16 +8,30 @@ device_ids = {}
 def handle_connection(addr, device_id):
     """Connect to a device, send its assigned ID, and print incoming pitch data."""
     print(f"[{addr}] Attempting connection...")
+    
+    # Discover available services on the device
+    services = bluetooth.find_service(address=addr)
+    port = None
+    for svc in services:
+        if svc["protocol"] == "RFCOMM":
+            port = svc["port"]
+            break
+    if port is None:
+        print(f"[{addr}] No RFCOMM service found. Skipping this device.")
+        return
+    
+    print(f"[{addr}] Found RFCOMM service on port {port}.")
+    
     sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-    sock.settimeout(10)  # set a timeout for socket operations
+    sock.settimeout(10)  # Set a timeout for socket operations
     try:
-        # Use connect_ex() to get an error code instead of raising an exception immediately.
-        err = sock.connect_ex((addr, 1))
+        # Use connect_ex() to get an error code
+        err = sock.connect_ex((addr, port))
         if err != 0:
             print(f"[{addr}] Initial connection failed with error code: {err}")
             sock.close()
             return
-        # Allow a short delay for the connection to stabilize.
+        # Give the ESP32 time to settle
         time.sleep(1)
         print(f"[{addr}] Connected successfully with assigned ID {device_id}.")
         
@@ -25,7 +39,7 @@ def handle_connection(addr, device_id):
         id_message = f"Your ID is {device_id}\n"
         sock.send(id_message.encode('utf-8'))
         print(f"[{addr}] Sent ID message: {id_message.strip()}")
-
+        
         while True:
             try:
                 data = sock.recv(1024)  # Receive up to 1024 bytes
