@@ -1,17 +1,10 @@
 #include <Wire.h>
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
+#include <BluetoothSerial.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <math.h>
 
-// BLE UUIDs (must match the ones in your Python script)
-#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-
-// Pin assignments
+// --- Pin assignments ---
 #define LED1_PIN 33
 #define LED2_PIN 32
 #define BUTTON_PIN 27    
@@ -22,34 +15,24 @@
 #define SDA_PIN 21
 #define SCL_PIN 22
 
-// BLE globals
-BLECharacteristic *pCharacteristic;
-BLEServer *pServer;
-bool deviceConnected = false;
+// --- Create BluetoothSerial instance ---
+BluetoothSerial SerialBT;
 
-// Create an MPU6050 instance
+// --- Create an MPU6050 instance ---
 Adafruit_MPU6050 mpu;
 
 // --- Tone parameters ---
 const int TONE_FREQUENCY = 1000;   // 1 kHz tone
 const int TONE_DURATION = 200;     // duration in milliseconds
 
-// Custom BLE server callback to track connection status
-class MyServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer* pServer) {
-    deviceConnected = true;
-    Serial.println("BLE Client Connected");
-  }
-  void onDisconnect(BLEServer* pServer) {
-    deviceConnected = false;
-    Serial.println("BLE Client Disconnected");
-  }
-};
+// --- LED timing ---
+unsigned long lastLedToggleTime = 0;
+bool ledsOn = false;
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("ESP32 BLE IMU Example");
+  Serial.println("ESP32 Bluetooth Serial IMU Example");
 
   // Initialize LED pins
   pinMode(LED1_PIN, OUTPUT);
@@ -76,34 +59,25 @@ void setup() {
   mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
   Serial.println("MPU6050 initialized");
 
-  // --- BLE Setup ---
-  BLEDevice::init("ESP32_BLE_Device");
-  pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new MyServerCallbacks());
-  BLEService *pService = pServer->createService(SERVICE_UUID);
-  
-  // Create a characteristic that supports READ and NOTIFY
-  pCharacteristic = pService->createCharacteristic(
-                      CHARACTERISTIC_UUID,
-                      BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
-                      );
-  pCharacteristic->addDescriptor(new BLE2902());
-  
-  pService->start();
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-  // Optionally add the service UUID to the advertisement data
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->start();
-  Serial.println("BLE advertising started");
+  // --- Bluetooth Serial Setup ---
+  // Start Bluetooth Serial with a device name.
+  if(!SerialBT.begin("ESP32_BT_Device")) {
+    Serial.println("An error occurred initializing Bluetooth");
+  } else {
+    Serial.println("Bluetooth initialized. Waiting for connections...");
+  }
 }
 
 void loop() {
+  unsigned long currentMillis = millis();
+
   // --- Flash the LEDs every second ---
-  digitalWrite(LED1_PIN, HIGH);
-  digitalWrite(LED2_PIN, HIGH);
-  delay(500);
-  digitalWrite(LED1_PIN, LOW);
-  digitalWrite(LED2_PIN, LOW);
+  if(currentMillis - lastLedToggleTime >= 1000) {
+    lastLedToggleTime = currentMillis;
+    ledsOn = !ledsOn;
+    digitalWrite(LED1_PIN, ledsOn ? HIGH : LOW);
+    digitalWrite(LED2_PIN, ledsOn ? HIGH : LOW);
+  }
 
   // --- Check Button for tone output ---
   // Assuming active LOW: when pressed, digitalRead returns LOW.
@@ -118,26 +92,21 @@ void loop() {
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
   
-  // Compute pitch angle from accelerometer data
+  // Compute pitch angle from accelerometer data.
   // Formula: pitch = atan2(accY, sqrt(accX^2 + accZ^2)) * (180/PI)
   float pitch = atan2(a.acceleration.y, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.z * a.acceleration.z)) * 180.0 / PI;
   
-  // Print the pitch to Serial
+  // Print the pitch to Serial monitor.
   Serial.print("Pitch: ");
   Serial.print(pitch, 2);
   Serial.println("°");
   
-  // --- Update BLE characteristic ---
-  // Convert pitch value to a string
+  // --- Transmit pitch data over Bluetooth Serial ---
+  // This will send the data to all connected Bluetooth clients.
   char pitchStr[10];
-  dtostrf(pitch, 4, 2, pitchStr); // 4 digits, 2 decimals
-  pCharacteristic->setValue(pitchStr);
+  dtostrf(pitch, 4, 2, pitchStr);  // Format the pitch value as a string
+  SerialBT.println(pitchStr);
   
-  // Notify connected BLE client, if any
-  if (deviceConnected) {
-    pCharacteristic->notify();
-  }
-  
-  // Wait for the remainder of the 1-second period
+  // Wait a short interval before repeating.
   delay(500);
 }
