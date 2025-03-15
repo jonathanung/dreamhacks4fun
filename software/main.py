@@ -3,7 +3,8 @@ import pygame
 import sys
 import time
 from event_controller import EventController
-from minigame1 import run_minigame1
+from menu import show_menu
+from pong import run_pong
 from minigame2 import run_minigame2
 
 pygame.init()
@@ -13,13 +14,16 @@ clock = pygame.time.Clock()
 
 # Menu state
 menu_selected = 0
-menu_options = [("Minigame 1", "minigame1"), ("Minigame 2", "minigame2"), ("Quit", "quit")]
+menu_options = [("Pong", "pong"), ("Minigame 2", "minigame2"), ("Quit", "quit")]
+
+# Game settings
+pong_player_count = 4  # Set to 4 by default
 
 def main():
-    global menu_selected, menu_options
+    global menu_selected, menu_options, pong_player_count
     
     running = True
-    state = "menu"  # Possible states: "menu", "minigame1", "minigame2"
+    state = "menu"  # Possible states: "menu", "pong", "minigame2"
     
     # Initialize event controller
     controller = EventController()
@@ -48,8 +52,8 @@ def main():
                             menu_selected = (menu_selected + 1) % len(menu_options)
                         elif event.key == pygame.K_RETURN:
                             selected_option = menu_options[menu_selected][1]
-                            if selected_option == "minigame1":
-                                state = "minigame1"
+                            if selected_option == "pong":
+                                state = "pong"
                             elif selected_option == "minigame2":
                                 state = "minigame2"
                             elif selected_option == "quit":
@@ -74,8 +78,8 @@ def main():
                         elif action == 'select':
                             selected_option = menu_options[menu_selected][1]
                             print(f"Selected option: {selected_option}")
-                            if selected_option == "minigame1":
-                                state = "minigame1"
+                            if selected_option == "pong":
+                                state = "pong"
                             elif selected_option == "minigame2":
                                 state = "minigame2"
                             elif selected_option == "quit":
@@ -88,14 +92,14 @@ def main():
                     label = font.render(text, True, color)
                     screen.blit(label, (100, 100 + idx * 100))
             
-            elif state == "minigame1":
-                # Run minigame1
-                run_minigame1(screen)
+            elif state == "pong":
+                # Run pong with specified player count
+                run_pong(screen, pong_player_count, controller.get_events())
                 state = "menu"  # Return to menu after the game finishes
             
             elif state == "minigame2":
                 # Run minigame2
-                run_minigame2(screen)
+                run_minigame2(screen, controller.get_events())
                 state = "menu"  # Return to menu after the game finishes
             
             # Update display
