@@ -113,6 +113,10 @@ class Ball:
             normalized_dx = self.dx / magnitude
             normalized_dy = self.dy / magnitude
             
+            # Store old position for boundary checks
+            old_x = self.x
+            old_y = self.y
+            
             # Move with proper speed
             self.x += normalized_dx * effective_speed
             self.y += normalized_dy * effective_speed
@@ -173,6 +177,16 @@ class Ball:
         if self.reset_timer > 0:
             return None
         
+        # Add defensive boundary check - if the ball is way outside the boundaries, 
+        # reset it to the center of the screen
+        if (self.x < game_rect.left - self.radius * 2 or
+            self.x > game_rect.right + self.radius * 2 or
+            self.y < game_rect.top - self.radius * 2 or
+            self.y > game_rect.bottom + self.radius * 2):
+            print(f"WARNING: Ball escaped boundaries at ({self.x}, {self.y}). Resetting to center.")
+            self.reset(game_rect.centerx, game_rect.centery)
+            return None
+        
         wall_thickness = int(min(game_rect.width, game_rect.height) * 0.05)
         
         # Check dead player walls first
@@ -180,48 +194,78 @@ class Ball:
             # Left wall (Player 4)
             if not players_alive[3] and self.x - self.radius < game_rect.left + wall_thickness:
                 self.dx = abs(self.dx)  # Bounce right
+                # Ensure ball is inside the boundary
+                self.x = game_rect.left + wall_thickness + self.radius
                 return None
             
             # Right wall (Player 3) - SWAPPED
             if not players_alive[1] and self.x + self.radius > game_rect.right - wall_thickness:
                 self.dx = -abs(self.dx)  # Bounce left
+                # Ensure ball is inside the boundary
+                self.x = game_rect.right - wall_thickness - self.radius
                 return None
             
             # Top wall (Player 1)
             if not players_alive[0] and self.y - self.radius < game_rect.top + wall_thickness:
                 self.dy = abs(self.dy)  # Bounce down
+                # Ensure ball is inside the boundary
+                self.y = game_rect.top + wall_thickness + self.radius
                 return None
             
             # Bottom wall (Player 2) - SWAPPED
             if not players_alive[2] and self.y + self.radius > game_rect.bottom - wall_thickness:
                 self.dy = -abs(self.dy)  # Bounce up
+                # Ensure ball is inside the boundary
+                self.y = game_rect.bottom - wall_thickness - self.radius
                 return None
         
         # Normal boundaries check - only for ACTIVE player walls
         # Left wall (Player 4)
         if self.x - self.radius < game_rect.left:
             if players_alive is None or players_alive[3]:
+                print(f"Ball hit LEFT wall - Player 4 (index 3) loses a life")
                 return 3  # Player 4 loses a life
             self.dx = abs(self.dx)  # Bounce right
+            # Ensure ball is inside the boundary
+            self.x = game_rect.left + self.radius
         
         # Right wall (Player 2)
         elif self.x + self.radius > game_rect.right:
             if players_alive is None or players_alive[1]:
+                print(f"Ball hit RIGHT wall - Player 2 (index 1) loses a life")
                 return 1  # Player 2 loses a life
             self.dx = -abs(self.dx)  # Bounce left
+            # Ensure ball is inside the boundary
+            self.x = game_rect.right - self.radius
         
         # Top wall (Player 1)
         elif self.y - self.radius < game_rect.top:
             if players_alive is None or players_alive[0]:
+                print(f"Ball hit TOP wall - Player 1 (index 0) loses a life")
                 return 0  # Player 1 loses a life
             self.dy = abs(self.dy)  # Bounce down
+            # Ensure ball is inside the boundary
+            self.y = game_rect.top + self.radius
         
         # Bottom wall (Player 3)
         elif self.y + self.radius > game_rect.bottom:
             if players_alive is None or players_alive[2]:
+                print(f"Ball hit BOTTOM wall - Player 3 (index 2) loses a life")
                 return 2  # Player 3 loses a life
             self.dy = -abs(self.dy)  # Bounce up
+            # Ensure ball is inside the boundary
+            self.y = game_rect.bottom - self.radius
         
+        # Safeguard against out-of-bounds ball (beyond all walls)
+        # This should never happen, but just in case the ball goes out of bounds
+        if (self.x < game_rect.left - 2*self.radius or 
+            self.x > game_rect.right + 2*self.radius or
+            self.y < game_rect.top - 2*self.radius or
+            self.y > game_rect.bottom + 2*self.radius):
+            print(f"WARNING: Ball is out of bounds at ({self.x}, {self.y}). Resetting to center.")
+            self.reset(game_rect.centerx, game_rect.centery)
+            return None
+            
         return None
     
     def draw(self, screen, color):

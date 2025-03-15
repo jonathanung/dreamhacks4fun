@@ -27,9 +27,10 @@ if not 'PLAYER_STARTING_LIVES' in globals():
 
 # Create a Pong game class that can be initialized and run as a state
 class PongGame:
-    def __init__(self, screen=None, event_handler=None):
+    def __init__(self, screen=None, player_count=4, event_handler=None):
         """Initialize the Pong game state"""
         self.screen = screen
+        self.player_count = player_count
         self.event_handler = event_handler
         self.running = False
         self.initialized = False
@@ -49,23 +50,38 @@ class PongGame:
         self.player_pokemon = {}
         self.start_time = pygame.time.get_ticks()
         self.show_start_text = False
-        self.player_count = 4  # Default, will be updated in initialize
+        self.show_win_screen = False
+        self.win_sound_played = False
         
+        # Sound effects
+        self.bg_music = None
+        self.win_sound = None
+        
+        # Initialize mixer if not already done
+        if not pygame.mixer.get_init():
+            pygame.mixer.init()
+
     def initialize(self, player_count=4):
         """Initialize pygame and game resources"""
+        print(f"Initializing Pong game with player_count={player_count}")
         if self.initialized:
+            print("Game already initialized, skipping initialization")
             return True
             
         try:
             # If screen wasn't provided, create one
             if self.screen is None:
+                print("No screen provided, creating a new screen")
                 if not pygame.get_init():
                     pygame.init()
                 self.screen = pygame.display.set_mode((800, 600))
                 pygame.display.set_caption("Multiplayer Pong")
+            else:
+                print(f"Using provided screen with size: {self.screen.get_size()}")
             
             # Get screen dimensions
             self.WIDTH, self.HEIGHT = self.screen.get_size()
+            print(f"Screen dimensions: {self.WIDTH}x{self.HEIGHT}")
             
             # Initialize resources
             self.clock = pygame.time.Clock()
@@ -73,6 +89,7 @@ class PongGame:
             
             # Get game area
             self.GAME_RECT = get_square_game_rect(self.WIDTH, self.HEIGHT)
+            print(f"Game area: {self.GAME_RECT}")
             
             # Calculate dimensions
             try:
@@ -81,6 +98,7 @@ class PongGame:
                 self.ball_speed = dims.get('ball_speed', 5)
                 self.paddle_hit_distance = dims.get('paddle_hit_distance', 10)
                 self.fever_orb_radius = dims.get('fever_orb_radius', 30)
+                print(f"Ball radius: {self.ball_radius}, Ball speed: {self.ball_speed}")
             except Exception as e:
                 print(f"Error calculating dimensions: {e}")
                 self.ball_radius = 15
@@ -147,14 +165,28 @@ class PongGame:
             self.fever_effect = FeverEffect(FEVER_DURATION)
             self.fever_orb = None
             
-            # Try to play music if available
+            # Load and play background music
             try:
-                music_path = os.path.join(os.path.dirname(__file__), "pong-music.mp3")
-                if os.path.exists(music_path) and pygame.mixer.get_init():
-                    pygame.mixer.music.load(music_path)
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                bg_music_path = os.path.join(current_dir, "pong.mp3")
+                
+                # If pong.mp3 doesn't exist, look for any other mp3 file we can use
+                if not os.path.exists(bg_music_path):
+                    # Just create a file list and check for mp3s that aren't win-sound or main-menu
+                    files = os.listdir(current_dir)
+                    for file in files:
+                        if file.endswith(".mp3") and file != "win-sound.mp3" and file != "main-menu.mp3" and file != "shooting-stars.mp3":
+                            bg_music_path = os.path.join(current_dir, file)
+                            break
+                
+                # Load and play the background music if found
+                if os.path.exists(bg_music_path):
+                    pygame.mixer.music.load(bg_music_path)
+                    pygame.mixer.music.set_volume(0.4)  # 40% volume
                     pygame.mixer.music.play(-1)  # Loop indefinitely
+            
             except Exception as e:
-                print(f"Could not load music: {e}")
+                print(f"Error loading pong music: {e}")
             
             # Explicitly set game to not started
             self.game_started = False
@@ -185,6 +217,15 @@ class PongGame:
             if player_count >= 4:
                 self.players_alive[3] = True
                 self.player_lives[3] = PLAYER_STARTING_LIVES
+            
+            # Load and play win sound
+            try:
+                win_sound_path = os.path.join(current_dir, "win-sound.mp3")
+                if os.path.exists(win_sound_path):
+                    self.win_sound = pygame.mixer.Sound(win_sound_path)
+                    self.win_sound.set_volume(0.7)  # 70% volume
+            except Exception as e:
+                print(f"Error loading win sound: {e}")
             
             self.initialized = True
             return True
@@ -276,10 +317,12 @@ class PongGame:
         for event in events:
             if event.type == pygame.QUIT:
                 self.running = False
+                pygame.mixer.music.stop()
                 return False
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
+                    pygame.mixer.music.stop()
                     return False
                 elif event.key == pygame.K_SPACE and not self.game_started:
                     print("Space pressed - starting game!")
@@ -329,10 +372,6 @@ class PongGame:
             # IMPORTANT: Make sure the ball knows the game has started
             self.ball.game_started = self.game_started
             
-            # Debug ball state
-            print(f"Ball state: position=({self.ball.x}, {self.ball.y}), direction=({self.ball.dx}, {self.ball.dy}), " +
-                  f"reset_timer={self.ball.reset_timer}, game_started={self.ball.game_started}")
-            
             # Update ball
             self.ball.update()
             
@@ -367,7 +406,8 @@ class PongGame:
                     
                     # Check if game is over (only one player left)
                     alive_count = sum(self.players_alive)
-                    if alive_count <= 1:
+                    if alive_count == 1:  # Changed from <=1 to exactly 1 to prevent random endings
+                        # Find the last player standing
                         last_player = -1
                         for i, alive in enumerate(self.players_alive):
                             if alive:
@@ -377,7 +417,8 @@ class PongGame:
                         if last_player >= 0:
                             self.game_over = True
                             self.winner = last_player
-            
+                            self.show_win_screen = True  # Flag to show win screen
+                
                 # Reset ball
                 self.ball.reset(self.GAME_RECT.centerx, self.GAME_RECT.centery)
                 
@@ -399,6 +440,11 @@ class PongGame:
             # Draw background if available
             if self.bg_image:
                 self.screen.blit(self.bg_image, (0, 0))
+            
+            # Special win screen display
+            if self.game_over and self.winner is not None and hasattr(self, 'show_win_screen') and self.show_win_screen:
+                self.draw_win_screen()
+                return  # Don't draw the rest of the game elements
             
             # Draw game boundary
             pygame.draw.rect(self.screen, WALL_COLOR, self.GAME_RECT, 2)
@@ -423,7 +469,8 @@ class PongGame:
             if not self.game_started and self.show_start_text:
                 text = self.font.render("Press SPACE to start", True, (255, 255, 255))
                 self.screen.blit(text, (self.WIDTH // 2 - text.get_width() // 2, self.HEIGHT // 2))
-            elif self.game_over:
+            elif self.game_over and not hasattr(self, 'show_win_screen'):
+                # Old game over text (kept for backward compatibility)
                 if self.winner is not None:
                     text = self.font.render(f"Player {self.winner + 1} wins! Press R to restart", True, PLAYER_COLORS[self.winner])
                 else:
@@ -654,54 +701,211 @@ class PongGame:
             traceback.print_exc()
     
     def run_frame(self):
-        """Run a single frame of the game"""
-        if not self.initialized and not self.initialize():
-            print("Failed to initialize Pong game")
-            return False
-        
-        # Process events
-        if not self.handle_events(pygame.event.get()):
-            return False
-        
-        # Process middleware events
-        self.process_middleware_events()
-        
-        # Process input
-        self.process_input()
-        
-        # Update game state
-        self.update()
-        
-        # Draw
-        self.draw()
-        
-        # Check if the game is over
-        # THIS is likely happening too early - make sure game_over isn't True here
-        if self.game_over and self.winner is not None:
-            return self.winner
-        
-        return None
+        """Run a single frame of the game. Returns True if the game should continue, False if it should end."""
+        try:
+            # Get events
+            events = pygame.event.get()
+            
+            # Handle events
+            for event in events:
+                if event.type == pygame.QUIT:
+                    print("Quit event detected in run_frame")
+                    self.running = False
+                    pygame.mixer.music.stop()
+                    return False
+                    
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        print("Escape key detected in run_frame")
+                        self.running = False
+                        pygame.mixer.music.stop()
+                        return False
+                    
+                    # Check for win screen interaction
+                    if hasattr(self, 'show_win_screen') and self.show_win_screen and self.game_over:
+                        print(f"Key pressed on win screen. Returning winner: {self.winner}")
+                        # Any key press on win screen returns the winner
+                        if not self.win_sound_played and self.win_sound:
+                            self.win_sound.play()
+                            self.win_sound_played = True
+                        
+                        # Return after a short delay to let the win sound play
+                        pygame.time.delay(200)
+                        return self.winner
+                        
+                    # Skip this frame for debugging purposes
+                    if event.key == pygame.K_F1:
+                        self.debug_game_state()
+                    
+                    # Handle space key press to start game
+                    if event.key == pygame.K_SPACE and not self.game_started:
+                        print("Space pressed - starting game!")
+                        self.game_started = True
+                        if hasattr(self, 'ball') and self.ball is not None:
+                            self.ball.game_started = True
+            
+            # Handle external events if we have them
+            if self.event_handler is not None:
+                try:
+                    external_events = []
+                    
+                    # Get events from the middleware
+                    if callable(self.event_handler):
+                        # It's a function we can call
+                        external_events = self.event_handler()
+                    elif hasattr(self.event_handler, 'get_events') and callable(self.event_handler.get_events):
+                        # It has a get_events method
+                        external_events = self.event_handler.get_events()
+                    elif isinstance(self.event_handler, list):
+                        # It's already a list of events
+                        external_events = self.event_handler
+                    
+                    # Check for win screen interaction from external events
+                    if hasattr(self, 'show_win_screen') and self.show_win_screen and self.game_over:
+                        for ext_event in external_events:
+                            # Any button press on win screen returns the winner
+                            if isinstance(ext_event, dict) and (ext_event.get('type') == 'KEYDOWN' or ext_event.get('action') in ['select', 'hit']):
+                                print(f"External event on win screen. Returning winner: {self.winner}")
+                                if not self.win_sound_played and self.win_sound:
+                                    self.win_sound.play()
+                                    self.win_sound_played = True
+                                
+                                # Return after a short delay to let the win sound play
+                                pygame.time.delay(200)
+                                return self.winner
+                    
+                    # Process regular middleware events if not on win screen
+                    self.process_middleware_events()
+                except Exception as e:
+                    print(f"Error processing middleware events: {e}")
+            
+            # Process input
+            self.process_input()
+            
+            # Update game state
+            self.update()
+            
+            # Draw
+            self.draw()
+            
+            # Make sure the screen is updated
+            pygame.display.flip()
+            
+            # Handle win screen sound (if we're on the win screen but haven't played the sound yet)
+            if self.game_over and self.winner is not None and hasattr(self, 'show_win_screen') and self.show_win_screen:
+                if not self.win_sound_played and self.win_sound:
+                    print(f"Playing win sound on win screen for winner: {self.winner}")
+                    self.win_sound.play()
+                    self.win_sound_played = True
+                
+                # On win screen but waiting for input
+                return None
+            
+            # Normal game over check (without dedicated win screen)
+            if self.game_over and self.winner is not None and not hasattr(self, 'show_win_screen'):
+                # Fade out background music if game is over
+                pygame.mixer.music.fadeout(1000)  # Fade out over 1 second
+                return self.winner
+            
+            # Ensure we have a proper frame rate if not already handled in run()
+            if hasattr(self, 'clock') and self.clock:
+                self.clock.tick(60)
+                
+            # Return None to indicate the game should continue (not True or False)
+            return None
+            
+        except Exception as e:
+            print(f"Error in run_frame: {e}")
+            import traceback
+            traceback.print_exc()
+            # Don't return False on error - return None to continue
+            return None
     
     def run(self):
         """Run the main game loop"""
-        if not self.initialized and not self.initialize():
+        print("Starting Pong game run method")
+        if not self.initialized and not self.initialize(self.player_count):
             print("Failed to initialize Pong game")
-            return
+            return -1
+        
+        print(f"Initialization successful. game_started={self.game_started}, player_count={self.player_count}")
+        print(f"Players alive: {self.players_alive}")
+        print(f"Player lives: {self.player_lives}")
         
         self.running = True
+        winner = -1
+        
+        # Make sure the display is updated at least once before the game loop
+        pygame.display.flip()
         
         try:
+            print("Entering main game loop")
+            frame_count = 0
+            
+            # Force Pong game to start automatically
+            self.game_started = True
+            if hasattr(self, 'ball') and self.ball is not None:
+                self.ball.game_started = True
+                
+            # Create a wait timer to ensure we see the game before proceeding
+            start_time = pygame.time.get_ticks()
+            
             while self.running:
-                if not self.run_frame():
+                # Print a heartbeat message every 60 frames for debugging
+                frame_count += 1
+                if frame_count % 60 == 0:
+                    print(f"Game still running - frame {frame_count}")
+                
+                # Process events first
+                events = pygame.event.get()
+                for event in events:
+                    if event.type == pygame.QUIT:
+                        self.running = False
+                        print("Quit event received")
+                        pygame.mixer.music.stop()
+                        return -1
+                    elif event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_ESCAPE:
+                            self.running = False
+                            print("Escape key pressed")
+                            pygame.mixer.music.stop()
+                            return -1
+                
+                # Call run_frame but don't exit loop if it returns None (continue game)
+                result = self.run_frame()
+                
+                # Force the screen to update
+                pygame.display.flip()
+                
+                # Ensure we have a proper frame rate
+                if hasattr(self, 'clock') and self.clock:
+                    self.clock.tick(60)
+                
+                # Handle game end conditions
+                if isinstance(result, int) and result >= 0:
+                    # Game ended with a winner
+                    print(f"Game ended with winner: {result}")
+                    winner = result
+                    break
+                elif result is False:
+                    # Only exit if run_frame explicitly returns False (quit requested)
+                    print("Game loop explicitly quit")
                     break
         
         except Exception as e:
             print(f"Error in game loop: {e}")
+            import traceback
             traceback.print_exc()
+        
+        # Stop the music before exiting
+        pygame.mixer.music.stop()
+        print(f"Game finished. Returning winner: {winner}")
         
         # Make sure we don't quit pygame if it's being managed externally
         if self.event_handler is None:
             pygame.quit()
+            
+        return winner
 
     def debug_game_state(self):
         """Print debug information about the current game state"""
@@ -716,67 +920,66 @@ class PongGame:
         print(f"Ball speed: {self.ball.base_speed * self.ball.hit_boost * self.ball.speed_multiplier}")
         print("--- END DEBUG ---\n")
 
-# Fix the run_pong function to prevent random winners
+    def draw_win_screen(self):
+        """Draw a dedicated win screen showing the winner's Pokémon"""
+        # Create semi-transparent overlay
+        overlay = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 200))  # Black with 200/255 alpha
+        self.screen.blit(overlay, (0, 0))
+        
+        # Get center coordinates
+        center_x = self.WIDTH // 2
+        center_y = self.HEIGHT // 2
+        
+        # Create larger title font
+        big_font = pygame.font.Font(None, 72)
+        
+        # Draw winner title
+        title_text = big_font.render(f"Player {self.winner + 1} Wins!", True, PLAYER_COLORS[self.winner])
+        self.screen.blit(title_text, (center_x - title_text.get_width() // 2, center_y - 200))
+        
+        # Draw winner's Pokémon (larger size)
+        pokemon_sprite = self.player_pokemon.get(self.winner)
+        if pokemon_sprite:
+            # Create a large sprite for display
+            display_size = int(min(self.WIDTH, self.HEIGHT) * 0.3)  # 30% of screen size
+            scaled_sprite = pygame.transform.scale(pokemon_sprite, (display_size, display_size))
+            
+            # Draw centered sprite
+            sprite_x = center_x - display_size // 2
+            sprite_y = center_y - display_size // 2
+            self.screen.blit(scaled_sprite, (sprite_x, sprite_y))
+        
+        # Draw continue instructions
+        instructions_text = self.font.render("Press any key to continue", True, (255, 255, 255))
+        self.screen.blit(instructions_text, 
+                         (center_x - instructions_text.get_width() // 2, center_y + 200))
+
+# Fix the run_pong function to prevent random endings and ensure the game starts properly
 def run_pong(screen=None, player_count=4, external_events=None):
     print("Starting Pong game")
-    game = PongGame(screen, external_events)
+    game = PongGame(screen, player_count, external_events)
     
-    # Pass player_count to initialize
-    if not game.initialize(player_count):
-        print("Failed to initialize Pong game")
-        return -1
+    # Make sure the game starts automatically without requiring a space press
+    if not game.initialized:
+        game.initialize(player_count)
     
-    # Disable start text and start immediately (no countdown)
-    game.show_start_text = False
+    # Auto-start the game
     game.game_started = True
-    game.ball.game_started = True
+    if hasattr(game, 'ball') and game.ball is not None:
+        game.ball.game_started = True
     
-    running = True
-    winner = -1
-    frame_count = 0
-    min_game_time = 600  # Ensure game runs at least 10 seconds
-
-    while running:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    running = False
-        
-        frame_count += 1
-        
-        result = game.run_frame()
-        if result is False:
-            running = False
-        elif isinstance(result, int) and result >= 0:
-            winner = result
-            print(f"Player {winner + 1} won the game")
-            running = False
-        
-        alive_players = [i for i, alive in enumerate(game.players_alive) if alive]
-        if len(alive_players) == 1:
-            winner = alive_players[0]
-            print(f"Player {winner + 1} is the last one standing!")
-            running = False
-        
-        if frame_count > 36000:  # timeout after 10 minutes
-            print("Game timed out")
-            alive_players = [(i, game.player_lives[i]) for i, alive in enumerate(game.players_alive) if alive]
-            if not alive_players:
-                winner = 0
-            else:
-                max_lives = max([lives for i, lives in alive_players])
-                import random
-                candidates = [i for i, lives in alive_players if lives == max_lives]
-                winner = random.choice(candidates)
-                print(f"Player {winner + 1} wins with {max_lives} lives remaining!")
-            running = False
-        
-        pygame.display.flip()
-        pygame.time.delay(16)
+    # Run the game and get the winner
+    winner = game.run()
     
-    return winner
+    # Handle various return values
+    if isinstance(winner, int) and winner >= 0:
+        print(f"Pong game ended with valid winner: {winner}")
+        return winner
+    else:
+        # Game was quit or ended without a valid winner (False, None, or any non-integer)
+        print(f"Pong game ended without a valid winner. Result: {winner}")
+        return -1
 
 # Rename the original function if it exists (if needed)
 # Only do this if you had a previous run_pong implementation that didn't accept the new parameters

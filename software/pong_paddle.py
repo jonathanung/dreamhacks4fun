@@ -17,7 +17,7 @@ class Paddle:
     def activate_hit(self):
         """Activate the hit state for the paddle"""
         self.hit_active = True
-        self.hit_timer = 10  # Active for 10 frames
+        self.hit_timer = 4  # Active for 10 frames
     
     def update(self):
         """Update paddle state"""
