@@ -163,7 +163,56 @@ class Pokemon:
         score_render = font.render(score_text, True, self.color)
         screen.blit(score_render, (self.x - 40, self.y - self.size // 2))
 
-def run_shooting_stars(screen, player_count, events=None):
+def draw_win_screen(screen, winner, pokemon_shooters, pokemon_images, width, height, font, big_font):
+    """Draw a dedicated win screen showing the winner's Pokémon"""
+    # Create semi-transparent overlay
+    overlay = pygame.Surface((width, height), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 200))  # Black with 200/255 alpha
+    screen.blit(overlay, (0, 0))
+    
+    # Get center coordinates
+    center_x = width // 2
+    center_y = height // 2
+    
+    # Draw winner title
+    if winner == -1:
+        title_text = big_font.render("It's a tie!", True, (255, 255, 255))
+    else:
+        title_text = big_font.render(f"Player {winner + 1} Wins!", True, PLAYER_COLORS[winner])
+    
+    screen.blit(title_text, (center_x - title_text.get_width() // 2, center_y - 200))
+    
+    # Draw winner's Pokémon (larger size)
+    if winner != -1 and winner < len(pokemon_shooters):
+        pokemon_name = POKEMON_NAMES[winner]
+        pokemon_sprite = pokemon_images[pokemon_name]
+        if pokemon_sprite:
+            # Create a large sprite for display
+            display_size = int(min(width, height) * 0.3)  # 30% of screen size
+            scaled_sprite = pygame.transform.scale(pokemon_sprite, (display_size, display_size))
+            
+            # Draw centered sprite
+            sprite_x = center_x - display_size // 2
+            sprite_y = center_y - display_size // 2
+            screen.blit(scaled_sprite, (sprite_x, sprite_y))
+    
+    # Show final scores
+    scores_y = center_y + (50 if winner == -1 else 150)  # Adjust position based on whether there's a winner
+    scores_text = "Final Scores:"
+    scores_render = font.render(scores_text, True, (255, 255, 255))
+    screen.blit(scores_render, (center_x - scores_render.get_width() // 2, scores_y))
+    
+    for i, pokemon in enumerate(pokemon_shooters):
+        p_score_text = f"Player {i+1}: {pokemon.score}"
+        p_score_render = font.render(p_score_text, True, pokemon.color)
+        screen.blit(p_score_render, (center_x - p_score_render.get_width() // 2, scores_y + 40 + (i * 30)))
+    
+    # Draw continue instructions
+    instructions_text = font.render("Press any key to continue", True, (255, 255, 255))
+    screen.blit(instructions_text, 
+                (center_x - instructions_text.get_width() // 2, height - 100))
+
+def run_shooting_stars(screen, player_count, external_events=None):
     # Initialize pygame if not already initialized
     if not pygame.get_init():
         pygame.init()
@@ -296,8 +345,8 @@ def run_shooting_stars(screen, player_count, events=None):
                 key_pressed[event.key] = False  # Remove from pressed keys
         
         # Process external events if controller is present
-        if events is not None:
-            for event in events:
+        if external_events is not None:
+            for event in external_events:
                 if isinstance(event, dict):  # Ensure it's a dictionary
                     if event.get('type') == 'QUIT':
                         running = False
@@ -319,6 +368,26 @@ def run_shooting_stars(screen, player_count, events=None):
                         if key:
                             key_held[key] = False
                             key_pressed[key] = False
+                    # Handle controller actions
+                    elif 'action' in event:
+                        action = event.get('action')
+                        player_id = event.get('player_id', 0)  # Default to player 1 if not specified
+                        
+                        # Ensure player_id is within valid range
+                        if player_id >= 0 and player_id < player_count:
+                            if action == 'up':
+                                # Move the player's Pokemon up
+                                pokemon_shooters[player_id].move(-1, height)
+                                print(f"Player {player_id + 1} moving up via controller")
+                            elif action == 'down':
+                                # Move the player's Pokemon down
+                                pokemon_shooters[player_id].move(1, height)
+                                print(f"Player {player_id + 1} moving down via controller")
+                            elif action == 'shoot' or action == 'select':
+                                # Fire a bullet
+                                bullets.append(Bullet(pokemon_shooters[player_id].x + pokemon_shooters[player_id].size // 2, 
+                                                     pokemon_shooters[player_id].y, player_id))
+                                print(f"Player {player_id + 1} fired via controller")
         
         # Check countdown
         current_time = time.time()
@@ -328,6 +397,43 @@ def run_shooting_stars(screen, player_count, events=None):
                 game_started = True
                 start_time = current_time
             
+            # Allow exiting during countdown with escape key or controller
+            if key_pressed.get(pygame.K_ESCAPE, False):
+                running = False
+                pygame.mixer.music.stop()  # Stop music when exiting
+                return -1
+                
+            # Check for exit via middleware during countdown
+            if external_events:
+                try:
+                    middleware_events = []
+                    if callable(external_events):
+                        middleware_events = external_events()
+                    elif hasattr(external_events, 'get_events') and callable(external_events.get_events):
+                        middleware_events = external_events.get_events()
+                    elif isinstance(external_events, list):
+                        middleware_events = external_events
+                        
+                    for event in middleware_events:
+                        if isinstance(event, dict):
+                            # Check for escape action
+                            if event.get('action') == 'escape' or event.get('action') == 'quit':
+                                running = False
+                                pygame.mixer.music.stop()
+                                return -1
+                            # Check for any action that should exit the win screen
+                            elif (event.get('action') == 'select' or 
+                                 event.get('action') == 'shoot' or
+                                 event.get('action') == 'hit' or
+                                 event.get('action') == 'up' or
+                                 event.get('action') == 'down' or
+                                 event.get('type') == pygame.KEYDOWN):
+                                print(f"Win screen: Detected middleware event to exit: {event}")
+                                any_key_pressed = True
+                                break
+                except Exception as e:
+                    print(f"Error processing middleware events during countdown: {e}")
+        
         # Process input for each player
         if game_started and not game_over:
             # Player 1 controls (arrows) - now UP/DOWN
@@ -417,6 +523,7 @@ def run_shooting_stars(screen, player_count, events=None):
             elapsed_time = current_time - start_time
             if elapsed_time >= GAME_DURATION:
                 game_over = True
+                show_win_screen = True
                 # Fade out music over 2 seconds
                 pygame.mixer.music.fadeout(2000)
                 
@@ -435,114 +542,127 @@ def run_shooting_stars(screen, player_count, events=None):
                 
                 if tie:
                     winner = -1  # No winner on tie
+                    
+                print(f"Game over! Winner: {winner if winner != -1 else 'Tie'}")
         
         # Draw everything
         # Draw background
         screen.blit(bg_img, (0, 0))
         
-        # Draw game objects
-        for star in stars:
-            star.draw(screen, star_img)
-            
-        for bullet in bullets:
-            bullet.draw(screen)
-            
-        for pokemon in pokemon_shooters:
-            pokemon.draw(screen)
-        
-        # Draw countdown or timer
-        if not countdown_done:
-            countdown_value = max(1, int(COUNTDOWN_DURATION - (current_time - countdown_start) + 1))
-            if countdown_value == COUNTDOWN_DURATION:
-                countdown_text = "Get ready!"
-            else:
-                countdown_text = str(countdown_value)
-            countdown_render = big_font.render(countdown_text, True, (255, 255, 255))
-            screen.blit(countdown_render, (center_x - countdown_render.get_width() // 2, center_y - 150))
-        elif game_started and not game_over:
-            # Show remaining time
-            remaining_time = max(0, int(GAME_DURATION - (current_time - start_time)))
-            time_text = f"Time: {remaining_time}s"
-            time_render = font.render(time_text, True, (255, 255, 255))
-            screen.blit(time_render, (width - time_render.get_width() - 20, 20))
-        
-        # Draw scores at the top
-        score_y = 20
-        score_text = "Scores:"
-        score_render = font.render(score_text, True, (255, 255, 255))
-        screen.blit(score_render, (center_x - score_render.get_width() // 2, score_y))
-        
-        # Draw instructions
-        controls_y = height - 80
-        if player_count >= 1:
-            p1_text = "P1: ↑/↓ to move, → to shoot"
-            p1_render = font.render(p1_text, True, PLAYER_COLORS[0])
-            screen.blit(p1_render, (20, controls_y))
-            
-        if player_count >= 2:
-            p2_text = "P2: W/S to move, D to shoot"
-            p2_render = font.render(p2_text, True, PLAYER_COLORS[1])
-            screen.blit(p2_render, (20, controls_y + 25))
-            
-        # Draw "Press ESC to quit" text
-        quit_text = font.render("Press ESC to quit", True, (200, 200, 200))
-        screen.blit(quit_text, (center_x - quit_text.get_width() // 2, height - 40))
-        
-        # Draw game over screen
-        if game_over:
-            overlay = pygame.Surface((width, height), pygame.SRCALPHA)
-            overlay.fill((0, 0, 0, 128))
-            screen.blit(overlay, (0, 0))
-            
-            if winner == -1:
-                result_text = "It's a tie!"
-            else:
-                result_text = f"Player {winner+1} wins!"
-            
-            result_render = big_font.render(result_text, True, (255, 255, 255))
-            screen.blit(result_render, (center_x - result_render.get_width() // 2, center_y - 50))
+        # If we're showing the win screen, draw it and skip the regular game drawing
+        if game_over and show_win_screen:
+            draw_win_screen(screen, winner, pokemon_shooters, pokemon_images, width, height, font, big_font)
             
             # Play win sound if not already played
             if not win_sound_played and win_sound:
                 win_sound.play()
                 win_sound_played = True
             
-            # Show final scores
-            scores_text = "Final Scores:"
-            scores_render = font.render(scores_text, True, (255, 255, 255))
-            screen.blit(scores_render, (center_x - scores_render.get_width() // 2, center_y + 20))
-            
-            for i, pokemon in enumerate(pokemon_shooters):
-                p_score_text = f"Player {i+1}: {pokemon.score}"
-                p_score_render = font.render(p_score_text, True, pokemon.color)
-                screen.blit(p_score_render, (center_x - p_score_render.get_width() // 2, center_y + 60 + (i * 30)))
-            
-            press_any_key = font.render("Press any key to continue", True, (255, 255, 255))
-            screen.blit(press_any_key, (center_x - press_any_key.get_width() // 2, height - 100))
-            
-            # Check for key press to exit
+            # Check for key press or external event to exit
             any_key_pressed = False
             for key in key_pressed:
                 if key_pressed[key]:
                     any_key_pressed = True
                     break
                     
+            # Check for middleware events if available
+            if external_events:
+                try:
+                    middleware_events = []
+                    if callable(external_events):
+                        middleware_events = external_events()
+                    elif hasattr(external_events, 'get_events') and callable(external_events.get_events):
+                        middleware_events = external_events.get_events()
+                    elif isinstance(external_events, list):
+                        middleware_events = external_events
+                        
+                    for event in middleware_events:
+                        if isinstance(event, dict):
+                            # Check for escape action
+                            if event.get('action') == 'escape' or event.get('action') == 'quit':
+                                running = False
+                                pygame.mixer.music.stop()
+                                return -1
+                            # Check for any action that should exit the win screen
+                            elif (event.get('action') == 'select' or 
+                                 event.get('action') == 'shoot' or
+                                 event.get('action') == 'hit' or
+                                 event.get('action') == 'up' or
+                                 event.get('action') == 'down' or
+                                 event.get('type') == pygame.KEYDOWN):
+                                print(f"Win screen: Detected middleware event to exit: {event}")
+                                any_key_pressed = True
+                                break
+                except Exception as e:
+                    print(f"Error processing middleware events: {e}")
+                    
             if any_key_pressed:
+                # Make sure win sound stops playing when exiting
+                pygame.mixer.stop()
                 running = False
-        
-        # Debug text for key presses
-        debug_y = height - 150
-        if game_started and not game_over and False:  # Set to True to show debug info
-            for i, player_keys in enumerate([
-                ["Up/Down/Right", key_held.get(pygame.K_UP, False), key_held.get(pygame.K_DOWN, False)],
-                ["W/S/D", key_held.get(pygame.K_w, False), key_held.get(pygame.K_s, False)],
-                ["I/K/L", key_held.get(pygame.K_i, False), key_held.get(pygame.K_k, False)],
-                ["Num8/Num5/Num6", key_held.get(pygame.K_KP8, False), key_held.get(pygame.K_KP5, False)]
-            ]):
-                if i < player_count:
-                    debug_text = f"P{i+1} keys: {player_keys[0]} [{player_keys[1]}/{player_keys[2]}]"
-                    debug_render = font.render(debug_text, True, PLAYER_COLORS[i])
-                    screen.blit(debug_render, (width - 300, debug_y + i * 25))
+        else:
+            # Draw regular game elements
+            # Draw game objects
+            for star in stars:
+                star.draw(screen, star_img)
+                
+            for bullet in bullets:
+                bullet.draw(screen)
+                
+            for pokemon in pokemon_shooters:
+                pokemon.draw(screen)
+            
+            # Draw countdown or timer
+            if not countdown_done:
+                countdown_value = max(1, int(COUNTDOWN_DURATION - (current_time - countdown_start) + 1))
+                if countdown_value == COUNTDOWN_DURATION:
+                    countdown_text = "Get ready!"
+                else:
+                    countdown_text = str(countdown_value)
+                countdown_render = big_font.render(countdown_text, True, (255, 255, 255))
+                screen.blit(countdown_render, (center_x - countdown_render.get_width() // 2, center_y - 150))
+            elif game_started and not game_over:
+                # Show remaining time
+                remaining_time = max(0, int(GAME_DURATION - (current_time - start_time)))
+                time_text = f"Time: {remaining_time}s"
+                time_render = font.render(time_text, True, (255, 255, 255))
+                screen.blit(time_render, (width - time_render.get_width() - 20, 20))
+            
+            # Draw scores at the top
+            score_y = 20
+            score_text = "Scores:"
+            score_render = font.render(score_text, True, (255, 255, 255))
+            screen.blit(score_render, (center_x - score_render.get_width() // 2, score_y))
+            
+            # Draw instructions
+            controls_y = height - 80
+            if player_count >= 1:
+                p1_text = "P1: ↑/↓ to move, → to shoot"
+                p1_render = font.render(p1_text, True, PLAYER_COLORS[0])
+                screen.blit(p1_render, (20, controls_y))
+                
+            if player_count >= 2:
+                p2_text = "P2: W/S to move, D to shoot"
+                p2_render = font.render(p2_text, True, PLAYER_COLORS[1])
+                screen.blit(p2_render, (20, controls_y + 25))
+                
+            # Draw "Press ESC to quit" text
+            quit_text = font.render("Press ESC to quit", True, (200, 200, 200))
+            screen.blit(quit_text, (center_x - quit_text.get_width() // 2, height - 40))
+            
+            # Debug text for key presses
+            debug_y = height - 150
+            if game_started and not game_over and False:  # Set to True to show debug info
+                for i, player_keys in enumerate([
+                    ["Up/Down/Right", key_held.get(pygame.K_UP, False), key_held.get(pygame.K_DOWN, False)],
+                    ["W/S/D", key_held.get(pygame.K_w, False), key_held.get(pygame.K_s, False)],
+                    ["I/K/L", key_held.get(pygame.K_i, False), key_held.get(pygame.K_k, False)],
+                    ["Num8/Num5/Num6", key_held.get(pygame.K_KP8, False), key_held.get(pygame.K_KP5, False)]
+                ]):
+                    if i < player_count:
+                        debug_text = f"P{i+1} keys: {player_keys[0]} [{player_keys[1]}/{player_keys[2]}]"
+                        debug_render = font.render(debug_text, True, PLAYER_COLORS[i])
+                        screen.blit(debug_render, (width - 300, debug_y + i * 25))
         
         # Update display
         pygame.display.flip()

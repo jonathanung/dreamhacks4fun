@@ -731,6 +731,8 @@ class PongGame:
                         
                         # Return after a short delay to let the win sound play
                         pygame.time.delay(200)
+                        # Stop the win sound before returning
+                        pygame.mixer.stop()
                         return self.winner
                         
                     # Skip this frame for debugging purposes
@@ -764,7 +766,7 @@ class PongGame:
                     if hasattr(self, 'show_win_screen') and self.show_win_screen and self.game_over:
                         for ext_event in external_events:
                             # Any button press on win screen returns the winner
-                            if isinstance(ext_event, dict) and (ext_event.get('type') == 'KEYDOWN' or ext_event.get('action') in ['select', 'hit']):
+                            if isinstance(ext_event, dict) and (ext_event.get('type') == 'KEYDOWN' or ext_event.get('action') in ['select', 'hit', 'shoot']):
                                 print(f"External event on win screen. Returning winner: {self.winner}")
                                 if not self.win_sound_played and self.win_sound:
                                     self.win_sound.play()
@@ -772,6 +774,8 @@ class PongGame:
                                 
                                 # Return after a short delay to let the win sound play
                                 pygame.time.delay(200)
+                                # Stop the win sound before returning
+                                pygame.mixer.stop()
                                 return self.winner
                     
                     # Process regular middleware events if not on win screen
@@ -805,6 +809,8 @@ class PongGame:
             if self.game_over and self.winner is not None and not hasattr(self, 'show_win_screen'):
                 # Fade out background music if game is over
                 pygame.mixer.music.fadeout(1000)  # Fade out over 1 second
+                # Stop the win sound before returning
+                pygame.mixer.stop()  
                 return self.winner
             
             # Ensure we have a proper frame rate if not already handled in run()
@@ -870,6 +876,52 @@ class PongGame:
                             print("Escape key pressed")
                             pygame.mixer.music.stop()
                             return -1
+                        
+                        # Add direct win screen key press handling here
+                        elif self.game_over and hasattr(self, 'show_win_screen') and self.show_win_screen:
+                            print(f"Key pressed on win screen in main loop. Returning winner: {self.winner}")
+                            # Play win sound if not already played
+                            if not self.win_sound_played and self.win_sound:
+                                self.win_sound.play()
+                                self.win_sound_played = True
+                                # Short delay to let sound start
+                                pygame.time.delay(200)
+                            
+                            # Stop any sounds before returning
+                            pygame.mixer.stop()
+                            return self.winner
+                
+                # Handle middleware events for win screen if applicable
+                if self.game_over and hasattr(self, 'show_win_screen') and self.show_win_screen and self.event_handler is not None:
+                    try:
+                        # Get middleware events
+                        middleware_events = []
+                        if callable(self.event_handler):
+                            middleware_events = self.event_handler()
+                        elif hasattr(self.event_handler, 'get_events') and callable(self.event_handler.get_events):
+                            middleware_events = self.event_handler.get_events()
+                        elif isinstance(self.event_handler, list):
+                            middleware_events = self.event_handler
+                        
+                        # Check if any middleware event should dismiss the win screen
+                        for ext_event in middleware_events:
+                            if isinstance(ext_event, dict) and (
+                                ext_event.get('type') == 'KEYDOWN' or 
+                                ext_event.get('action') in ['select', 'hit', 'shoot', 'up', 'down']
+                            ):
+                                print(f"Middleware event detected on win screen: {ext_event}")
+                                # Play win sound if not already played
+                                if not self.win_sound_played and self.win_sound:
+                                    self.win_sound.play()
+                                    self.win_sound_played = True
+                                    # Short delay to let sound start
+                                    pygame.time.delay(200)
+                                
+                                # Stop any sounds before returning
+                                pygame.mixer.stop()
+                                return self.winner
+                    except Exception as e:
+                        print(f"Error processing middleware events on win screen: {e}")
                 
                 # Call run_frame but don't exit loop if it returns None (continue game)
                 result = self.run_frame()
@@ -950,8 +1002,29 @@ class PongGame:
             sprite_y = center_y - display_size // 2
             self.screen.blit(scaled_sprite, (sprite_x, sprite_y))
         
-        # Draw continue instructions
-        instructions_text = self.font.render("Press any key to continue", True, (255, 255, 255))
+        # Draw continue instructions with blinking effect
+        instruction_color = (255, 255, 255)
+        # Create blinking effect based on time
+        if pygame.time.get_ticks() % 1000 < 500:  # Blink every half second
+            instruction_color = (255, 255, 0)  # Bright yellow when blinking
+            
+        instructions_text = self.font.render("Press ANY KEY to continue", True, instruction_color)
+        
+        # Draw with a black outline for better visibility
+        outline_padding = 2
+        outline_positions = [
+            (center_x - instructions_text.get_width() // 2 - outline_padding, center_y + 200),
+            (center_x - instructions_text.get_width() // 2 + outline_padding, center_y + 200),
+            (center_x - instructions_text.get_width() // 2, center_y + 200 - outline_padding),
+            (center_x - instructions_text.get_width() // 2, center_y + 200 + outline_padding)
+        ]
+        
+        # Draw black outlines
+        outline_text = self.font.render("Press ANY KEY to continue", True, (0, 0, 0))
+        for pos in outline_positions:
+            self.screen.blit(outline_text, pos)
+            
+        # Draw the main text
         self.screen.blit(instructions_text, 
                          (center_x - instructions_text.get_width() // 2, center_y + 200))
 

@@ -28,7 +28,7 @@ try:
     from shooting_stars import run_shooting_stars
 except ImportError:
     print("Warning: Could not import run_shooting_stars")
-    def run_shooting_stars(screen, player_count, events):
+    def run_shooting_stars(screen, player_count, external_events):
         print("Shooting Stars game not available")
         return -1
 
@@ -273,6 +273,9 @@ def main():
                     # Only play win sound if it wasn't already played in the game
                     if win_sound and not pygame.mixer.get_busy():
                         win_sound.play()
+                        # Wait for sound to finish (or set a timer)
+                        pygame.time.delay(1000)  # Wait 1 second
+                        pygame.mixer.stop()  # Stop all sounds
                 else:
                     print("Pong game ended without a winner")
                 
@@ -287,11 +290,16 @@ def main():
                 if winner != -1:
                     player = f"Player {winner + 1}"
                     player_wins[player] += 1
+                    
+                    # Play win sound if available and not already played in the game
+                    if win_sound and winner >= 0:
+                        win_sound.play()
+                        # Wait briefly for sound to start then stop it
+                        pygame.time.delay(1000)  # Wait 1 second
+                        pygame.mixer.stop()  # Stop all sounds
                 
-                # Play win sound if available and not already played in the game
-                if win_sound and winner >= 0:
-                    win_sound.play()
-                
+                # Force a small delay before returning to menu
+                pygame.time.delay(500)
                 state = "menu"  # Return to menu after the game finishes
             
             # Update display
