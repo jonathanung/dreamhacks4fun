@@ -14,9 +14,9 @@
 // Pin assignments
 #define LED1_PIN 33
 #define LED2_PIN 32
-#define BUTTON_PIN 27    // Stub for button
+#define BUTTON_PIN 27    
 #define IR_SENSOR_PIN 26 // Stub for IR sensor
-#define SPEAKER_PIN 25   // Stub for speaker
+#define SPEAKER_PIN 25   
 
 // I2C pins for MPU6050
 #define SDA_PIN 21
@@ -29,6 +29,10 @@ bool deviceConnected = false;
 
 // Create an MPU6050 instance
 Adafruit_MPU6050 mpu;
+
+// --- Tone parameters ---
+const int TONE_FREQUENCY = 1000;   // 1 kHz tone
+const int TONE_DURATION = 200;     // duration in milliseconds
 
 // Custom BLE server callback to track connection status
 class MyServerCallbacks : public BLEServerCallbacks {
@@ -52,7 +56,7 @@ void setup() {
   pinMode(LED2_PIN, OUTPUT);
   
   // Set up stub pins (for future use)
-  pinMode(BUTTON_PIN, INPUT);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
   pinMode(IR_SENSOR_PIN, INPUT);
   pinMode(SPEAKER_PIN, OUTPUT);
 
@@ -100,6 +104,15 @@ void loop() {
   delay(500);
   digitalWrite(LED1_PIN, LOW);
   digitalWrite(LED2_PIN, LOW);
+
+  // --- Check Button for tone output ---
+  // Assuming active LOW: when pressed, digitalRead returns LOW.
+  if (digitalRead(BUTTON_PIN) == LOW) {
+    // Play a 1kHz tone for TONE_DURATION milliseconds.
+    tone(SPEAKER_PIN, TONE_FREQUENCY, TONE_DURATION);
+    // Debounce delay to avoid retriggering too quickly.
+    delay(300);
+  }
 
   // --- Read MPU6050 data ---
   sensors_event_t a, g, temp;
