@@ -1,6 +1,7 @@
 import socket
 import threading
 import json
+import time
 
 class EventController:
     def __init__(self, host='localhost', port=5555):
@@ -27,26 +28,35 @@ class EventController:
             print(f"Event controller started on {self.host}:{self.port}")
         except Exception as e:
             print(f"Failed to start event controller: {e}")
-            self.socket.close()
+            if self.socket:
+                self.socket.close()
         
     def _listen_for_events(self):
         """Listen for events from external programs"""
         while self.running:
             try:
-                client, _ = self.socket.accept()
-                data = client.recv(1024).decode('utf-8')
-                client.close()
-                
-                if data:
-                    try:
-                        event_data = json.loads(data)
-                        with self.lock:
-                            self.events.append(event_data)
-                    except json.JSONDecodeError:
-                        print("Received invalid JSON data")
+                self.socket.settimeout(0.5)  # Add timeout for easier shutdown
+                try:
+                    client, _ = self.socket.accept()
+                    data = client.recv(1024).decode('utf-8')
+                    client.close()
+                    
+                    if data:
+                        try:
+                            event_data = json.loads(data)
+                            print(f"Event controller received: {event_data}")  # Debug print
+                            with self.lock:
+                                self.events.append(event_data)
+                        except json.JSONDecodeError:
+                            print(f"Received invalid JSON data: {data}")
+                except socket.timeout:
+                    # This is expected, just continue
+                    pass
             except Exception as e:
                 if self.running:
                     print(f"Error in event controller: {e}")
+            
+            time.sleep(0.01)  # Small delay to prevent CPU hogging
     
     def get_events(self):
         """Get and clear the current events"""
