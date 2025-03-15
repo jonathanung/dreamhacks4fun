@@ -92,7 +92,8 @@ def main():
     pygame.mixer.init()
     
     # Set up fullscreen display
-    screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+    # screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+    screen = pygame.display.set_mode((1920, 1080))
     pygame.display.set_caption("My Multi-Minigame Project")
     clock = pygame.time.Clock()
     
@@ -204,28 +205,56 @@ def main():
                             print(f"Processing external events: {external_events}")
                             
                             for event in external_events:
+                                # Support both old and new event format
                                 action = event.get('action')
-                                if action == 'up':
-                                    menu_selected = (menu_selected - 1) % len(menu_options)
-                                    print(f"Menu selection moved up to {menu_selected}")
-                                elif action == 'down':
-                                    menu_selected = (menu_selected + 1) % len(menu_options)
-                                    print(f"Menu selection moved down to {menu_selected}")
-                                elif action == 'select':
-                                    selected_option = menu_options[menu_selected][1]
-                                    print(f"Selected option: {selected_option}")
-                                    if selected_option == "pong":
-                                        # Stop menu music before starting the game
-                                        pygame.mixer.music.stop()
-                                        state = "pong"
-                                    elif selected_option == "shooting_stars":
-                                        # Stop menu music before starting the game
-                                        pygame.mixer.music.stop()
-                                        state = "shooting_stars"
-                                    elif selected_option == "quit":
-                                        running = False
+                                
+                                # New format: check for controller_input events with menu_action
+                                if event.get('event_type') == 'controller_input':
+                                    menu_action = event.get('menu_action')
+                                    if menu_action == 'navigate_up':
+                                        menu_selected = (menu_selected - 1) % len(menu_options)
+                                        print(f"Menu selection moved up to {menu_selected}")
+                                    elif menu_action == 'navigate_down':
+                                        menu_selected = (menu_selected + 1) % len(menu_options)
+                                        print(f"Menu selection moved down to {menu_selected}")
+                                    elif menu_action == 'select':
+                                        selected_option = menu_options[menu_selected][1]
+                                        print(f"Selected option: {selected_option}")
+                                        if selected_option == "pong":
+                                            # Stop menu music before starting the game
+                                            pygame.mixer.music.stop()
+                                            state = "pong"
+                                        elif selected_option == "shooting_stars":
+                                            # Stop menu music before starting the game
+                                            pygame.mixer.music.stop()
+                                            state = "shooting_stars"
+                                        elif selected_option == "quit":
+                                            running = False
+                                # Backward compatibility with old format
+                                elif action:
+                                    if action == 'up':
+                                        menu_selected = (menu_selected - 1) % len(menu_options)
+                                        print(f"Menu selection moved up to {menu_selected}")
+                                    elif action == 'down':
+                                        menu_selected = (menu_selected + 1) % len(menu_options)
+                                        print(f"Menu selection moved down to {menu_selected}")
+                                    elif action == 'select':
+                                        selected_option = menu_options[menu_selected][1]
+                                        print(f"Selected option: {selected_option}")
+                                        if selected_option == "pong":
+                                            # Stop menu music before starting the game
+                                            pygame.mixer.music.stop()
+                                            state = "pong"
+                                        elif selected_option == "shooting_stars":
+                                            # Stop menu music before starting the game
+                                            pygame.mixer.music.stop()
+                                            state = "shooting_stars"
+                                        elif selected_option == "quit":
+                                            running = False
                     except Exception as e:
                         print(f"Error processing external events: {e}")
+                        import traceback
+                        traceback.print_exc()
                 
                 # Draw menu
                 screen_width, screen_height = screen.get_size()
@@ -261,7 +290,7 @@ def main():
             elif state == "pong":
                 print("Starting Pong game...")
                 # Run pong with specified player count and get the winner
-                winner = run_pong(screen, player_count, controller.get_events() if controller else None)
+                winner = run_pong(screen, player_count, controller if controller else None)
                 print(f"Pong game returned result: {winner}")
                 
                 # Update win count ONLY if there was a valid winner (>= 0)
@@ -270,37 +299,34 @@ def main():
                     player_wins[player] += 1
                     print(f"{player} won! Total wins: {player_wins[player]}")
                     
-                    # Only play win sound if it wasn't already played in the game
-                    if win_sound and not pygame.mixer.get_busy():
-                        win_sound.play()
-                        # Wait for sound to finish (or set a timer)
-                        pygame.time.delay(1000)  # Wait 1 second
-                        pygame.mixer.stop()  # Stop all sounds
-                else:
-                    print("Pong game ended without a winner")
+                # Return to menu
+                state = "menu"
                 
-                # Force a small delay before returning to menu to let any sounds finish
-                pygame.time.delay(500)
-                state = "menu"  # Return to menu after the game finishes
+                # Ensure pygame mixer is reinitialized if it was closed
+                if not pygame.mixer.get_init():
+                    pygame.mixer.init()
+                
+                # Resume menu music
+                try:
+                    pygame.mixer.music.load(menu_music_path)
+                    pygame.mixer.music.play(-1)
+                except Exception as e:
+                    print(f"Error loading menu music: {e}")
             
             elif state == "shooting_stars":
-                # Run the Shooting Stars game
-                winner = run_shooting_stars(screen, player_count, controller.get_events() if controller else None)
-                # Update win stats
-                if winner != -1:
+                print("Starting Shooting Stars game...")
+                # Run shooting stars with specified player count and get the winner
+                winner = run_shooting_stars(screen, player_count, controller if controller else None)
+                print(f"Shooting Stars game returned result: {winner}")
+                
+                # Update win count ONLY if there was a valid winner (>= 0)
+                if isinstance(winner, int) and winner >= 0:
                     player = f"Player {winner + 1}"
                     player_wins[player] += 1
+                    print(f"{player} won! Total wins: {player_wins[player]}")
                     
-                    # Play win sound if available and not already played in the game
-                    if win_sound and winner >= 0:
-                        win_sound.play()
-                        # Wait briefly for sound to start then stop it
-                        pygame.time.delay(1000)  # Wait 1 second
-                        pygame.mixer.stop()  # Stop all sounds
-                
-                # Force a small delay before returning to menu
-                pygame.time.delay(500)
-                state = "menu"  # Return to menu after the game finishes
+                # Return to menu
+                state = "menu"
             
             # Update display
             pygame.display.flip()

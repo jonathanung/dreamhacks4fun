@@ -27,94 +27,134 @@ def send_to_event_controller(event_data, controller_host='localhost', controller
         return False
 
 def handle_connection(addr, player_id, controller_host, controller_port, debounce_time):
-    """Connect to a device, process incoming data, and forward events to the controller."""
-    print(f"[Player {player_id+1}] Connecting to {addr}...")
+    """Handle incoming data from a connected ESP32 device"""
+    print(f"Handling connection from {addr}, assigned player ID: {player_id}")
+    
+    # Send the player ID to the ESP32 after connecting
     sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
     try:
-        # Connect using RFCOMM on channel 1 (default for BluetoothSerial)
         sock.connect((addr, 1))
-        print(f"[Player {player_id+1}] Connected successfully.")
-        
-        # Store the address-to-player mapping
-        device_to_player[addr] = player_id
-        last_event_time[addr] = 0
-        
-        while True:
-            data = sock.recv(1024)  # Receive up to 1024 bytes
+        player_id_msg = f"PLAYER_ID:{player_id}"
+        sock.send(player_id_msg.encode())
+        print(f"Sent player ID {player_id} to device {addr}")
+    except Exception as e:
+        print(f"Failed to send player ID to {addr}: {e}")
+    
+    # Now listen for incoming data
+    sock.settimeout(None)  # Set to non-blocking
+    last_event_time[addr] = 0  # Initialize last event time
+    
+    while True:
+        try:
+            data = sock.recv(1024)
             if not data:
                 break
-                
-            # Process the received data
-            try:
-                # Get the current time for debouncing
-                current_time = time.time()
-                
-                # Try to parse as JSON first (preferred format)
-                try:
-                    message = data.decode('utf-8').strip()
-                    event_data = json.loads(message)
-                    print(f"[Player {player_id+1}] Received JSON event: {event_data}")
-                    
-                    # Add player_id to the event
-                    event_data['player'] = player_id
-                    
-                    # Check if debounce time has passed
-                    if current_time - last_event_time.get(addr, 0) > debounce_time:
-                        # Send to event controller
-                        send_to_event_controller(event_data, controller_host, controller_port)
-                        last_event_time[addr] = current_time
-                    
-                except json.JSONDecodeError:
-                    # If not valid JSON, try to process as pitch/sensor data
-                    value = data.decode('utf-8').strip()
-                    print(f"[Player {player_id+1}] Received raw data: {value}")
-                    
-                    # Process pitch or other sensor data
-                    try:
-                        # Try to interpret as pitch/tilt value
-                        pitch = float(value)
-                        
-                        # Simple algorithm to convert pitch to game actions
-                        # Debounce these sensor events
-                        if current_time - last_event_time.get(addr, 0) > debounce_time:
-                            if pitch > 30:
-                                event = {'action': 'up', 'player': player_id, 'value': pitch}
-                                send_to_event_controller(event, controller_host, controller_port)
-                                last_event_time[addr] = current_time
-                            elif pitch < -30:
-                                event = {'action': 'down', 'player': player_id, 'value': pitch}
-                                send_to_event_controller(event, controller_host, controller_port)
-                                last_event_time[addr] = current_time
-                    except ValueError:
-                        # Not a number, might be a string command
-                        if "button" in value.lower():
-                            if current_time - last_event_time.get(addr, 0) > debounce_time:
-                                event = {'action': 'select', 'player': player_id}
-                                send_to_event_controller(event, controller_host, controller_port)
-                                last_event_time[addr] = current_time
-                        elif "up" in value.lower():
-                            if current_time - last_event_time.get(addr, 0) > debounce_time:
-                                event = {'action': 'up', 'player': player_id}
-                                send_to_event_controller(event, controller_host, controller_port)
-                                last_event_time[addr] = current_time
-                        elif "down" in value.lower():
-                            if current_time - last_event_time.get(addr, 0) > debounce_time:
-                                event = {'action': 'down', 'player': player_id}
-                                send_to_event_controller(event, controller_host, controller_port)
-                                last_event_time[addr] = current_time
             
-            except Exception as e:
-                print(f"[Player {player_id+1}] Error processing data: {e}")
+            current_time = time.time()
+            
+            # Try to parse as JSON first (preferred format)
+            try:
+                message = data.decode('utf-8').strip()
+                event_data = json.loads(message)
+                print(f"[Player {player_id+1}] Received JSON event: {event_data}")
+                
+                # Convert to the new universal format
+                universal_event = {
+                    'event_type': 'controller_input',
+                    'player_id': player_id,
+                    'timestamp': event_data.get('timestamp', int(current_time * 1000))
+                }
+                
+                # Determine the action type
+                event_type = event_data.get('type', '')
+                event_action = event_data.get('action', '')
+                
+                # Map events to universal format
+                if event_type == 'button' and event_action == 'press':
+                    universal_event['controller_action'] = 'button'
+                    universal_event['menu_action'] = 'select'
+                    universal_event['game_action'] = 'action'
+                elif event_type == 'tilt':
+                    universal_event['controller_action'] = 'tilt'
+                    if event_action == 'up':
+                        universal_event['menu_action'] = 'navigate_up'
+                        universal_event['game_action'] = 'move_up'
+                    elif event_action == 'down':
+                        universal_event['menu_action'] = 'navigate_down'
+                        universal_event['game_action'] = 'move_down'
+                
+                # Check if debounce time has passed
+                if current_time - last_event_time.get(addr, 0) > debounce_time:
+                    # Send to event controller
+                    print(f"Sending universal event: {universal_event}")
+                    send_to_event_controller(universal_event, controller_host, controller_port)
+                    last_event_time[addr] = current_time
+                
+            except json.JSONDecodeError:
+                # If not valid JSON, try to process as pitch/sensor data
+                value = data.decode('utf-8').strip()
+                print(f"[Player {player_id+1}] Received raw data: {value}")
+                
+                # Process pitch or other sensor data
+                try:
+                    # Try to interpret as pitch/tilt value
+                    pitch = float(value)
+                    
+                    # Simple algorithm to convert pitch to game actions
+                    # Debounce these sensor events
+                    if current_time - last_event_time.get(addr, 0) > debounce_time:
+                        universal_event = {
+                            'event_type': 'controller_input',
+                            'player_id': player_id,
+                            'controller_action': 'tilt',
+                            'timestamp': int(current_time * 1000),
+                            'value': pitch
+                        }
+                        
+                        if pitch > 30:
+                            universal_event['menu_action'] = 'navigate_up'
+                            universal_event['game_action'] = 'move_up'
+                            send_to_event_controller(universal_event, controller_host, controller_port)
+                            last_event_time[addr] = current_time
+                        elif pitch < -30:
+                            universal_event['menu_action'] = 'navigate_down'
+                            universal_event['game_action'] = 'move_down'
+                            send_to_event_controller(universal_event, controller_host, controller_port)
+                            last_event_time[addr] = current_time
+                except ValueError:
+                    # Not a number, might be a string command
+                    if current_time - last_event_time.get(addr, 0) > debounce_time:
+                        universal_event = {
+                            'event_type': 'controller_input',
+                            'player_id': player_id,
+                            'timestamp': int(current_time * 1000)
+                        }
+                        
+                        if "button" in value.lower():
+                            universal_event['controller_action'] = 'button'
+                            universal_event['menu_action'] = 'select'
+                            universal_event['game_action'] = 'action'
+                            send_to_event_controller(universal_event, controller_host, controller_port)
+                            last_event_time[addr] = current_time
+                        elif "up" in value.lower():
+                            universal_event['controller_action'] = 'tilt'
+                            universal_event['menu_action'] = 'navigate_up'
+                            universal_event['game_action'] = 'move_up'
+                            send_to_event_controller(universal_event, controller_host, controller_port)
+                            last_event_time[addr] = current_time
+                        elif "down" in value.lower():
+                            universal_event['controller_action'] = 'tilt'
+                            universal_event['menu_action'] = 'navigate_down'
+                            universal_event['game_action'] = 'move_down'
+                            send_to_event_controller(universal_event, controller_host, controller_port)
+                            last_event_time[addr] = current_time
+                        
+        except Exception as e:
+            print(f"Error handling data from {addr}: {e}")
+            break
     
-    except Exception as e:
-        print(f"[Player {player_id+1}] Connection error: {e}")
-    finally:
-        sock.close()
-        print(f"[Player {player_id+1}] Disconnected.")
-        if addr in device_to_player:
-            del device_to_player[addr]
-        if addr in last_event_time:
-            del last_event_time[addr]
+    sock.close()
+    print(f"Connection with {addr} closed")
 
 def main():
     # Parse command line arguments

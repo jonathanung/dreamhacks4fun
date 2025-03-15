@@ -5,6 +5,7 @@ import os
 import random
 import math
 import traceback
+import time
 from pong_utils import *
 from pong_paddle import Paddle
 from pong_ball import Ball
@@ -27,11 +28,11 @@ if not 'PLAYER_STARTING_LIVES' in globals():
 
 # Create a Pong game class that can be initialized and run as a state
 class PongGame:
-    def __init__(self, screen=None, player_count=4, event_handler=None):
+    def __init__(self, screen=None, player_count=4, event_controller=None):
         """Initialize the Pong game state"""
         self.screen = screen
         self.player_count = player_count
-        self.event_handler = event_handler
+        self.event_controller = event_controller
         self.running = False
         self.initialized = False
         self.clock = None
@@ -594,114 +595,191 @@ class PongGame:
         """Process keyboard input"""
         try:
             keys = pygame.key.get_pressed()
+            game_rect = self.GAME_RECT
             
             # Player 1 (Top) controls - W/A/S/D
             if self.players_alive[0]:
+                # Left movement
                 if keys[pygame.K_a]:
-                    self.paddles[0].move("left", self.paddles[0].hit_distance, self.GAME_RECT)
+                    self.paddles[0].start_move("left")
+                else:
+                    self.paddles[0].stop_move("left")
+                    
+                # Right movement
                 if keys[pygame.K_d]:
-                    self.paddles[0].move("right", self.paddles[0].hit_distance, self.GAME_RECT)
+                    self.paddles[0].start_move("right")
+                else:
+                    self.paddles[0].stop_move("right")
+                
+                # Button press
                 if keys[pygame.K_s] and self.game_started and self.paddles[0].hit_timer == 0:
                     self.paddles[0].hit()
             
             # Player 2 (Right) controls - Arrow keys
             if self.players_alive[1]:
+                # Up movement
                 if keys[pygame.K_UP]:
-                    self.paddles[1].move("up", self.paddles[1].hit_distance, self.GAME_RECT)
+                    self.paddles[1].start_move("up")
+                else:
+                    self.paddles[1].stop_move("up")
+                
+                # Down movement
                 if keys[pygame.K_DOWN]:
-                    self.paddles[1].move("down", self.paddles[1].hit_distance, self.GAME_RECT)
+                    self.paddles[1].start_move("down")
+                else:
+                    self.paddles[1].stop_move("down")
+                
+                # Button press
                 if keys[pygame.K_LEFT] and self.game_started and self.paddles[1].hit_timer == 0:
                     self.paddles[1].hit()
             
             # Player 3 (Bottom) controls - H/J/K/L
             if self.players_alive[2]:
+                # Left movement
                 if keys[pygame.K_j]:
-                    self.paddles[2].move("left", self.paddles[2].hit_distance, self.GAME_RECT)
+                    self.paddles[2].start_move("left")
+                else:
+                    self.paddles[2].stop_move("left")
+                
+                # Right movement
                 if keys[pygame.K_l]:
-                    self.paddles[2].move("right", self.paddles[2].hit_distance, self.GAME_RECT)
+                    self.paddles[2].start_move("right")
+                else:
+                    self.paddles[2].stop_move("right")
+                
+                # Button press
                 if keys[pygame.K_k] and self.game_started and self.paddles[2].hit_timer == 0:
                     self.paddles[2].hit()
             
             # Player 4 (Left) controls - I/O/P
             if self.players_alive[3]:
+                # Up movement
                 if keys[pygame.K_i]:
-                    self.paddles[3].move("up", self.paddles[3].hit_distance, self.GAME_RECT)
+                    self.paddles[3].start_move("up")
+                else:
+                    self.paddles[3].stop_move("up")
+                
+                # Down movement
                 if keys[pygame.K_p]:
-                    self.paddles[3].move("down", self.paddles[3].hit_distance, self.GAME_RECT)
+                    self.paddles[3].start_move("down")
+                else:
+                    self.paddles[3].stop_move("down")
+                
+                # Button press
                 if keys[pygame.K_o] and self.game_started and self.paddles[3].hit_timer == 0:
                     self.paddles[3].hit()
+            
+            # Apply boundaries to all paddles
+            for paddle in self.paddles:
+                paddle.apply_boundaries(game_rect)
         
         except Exception as e:
             print(f"Error processing input: {e}")
+            import traceback
+            traceback.print_exc()
     
     def process_middleware_events(self):
-        """Process events from middleware if available"""
-        if self.event_handler is None:
-            return
-            
-        try:
-            events = []
-            
-            # Get events from the middleware
-            if callable(self.event_handler):
-                # It's a function we can call
-                events = self.event_handler()
-            elif hasattr(self.event_handler, 'get_events') and callable(self.event_handler.get_events):
-                # It has a get_events method
-                events = self.event_handler.get_events()
-            elif isinstance(self.event_handler, list):
-                # It's already a list of events
-                events = self.event_handler
-            else:
-                print(f"Warning: Unsupported event_handler type: {type(self.event_handler)}")
-                return
-            
-            # Process each event
-            for event in events:
-                if not isinstance(event, dict):
-                    continue
-                    
-                player_id = event.get('player_id')
-                action = event.get('action')
-                
-                if player_id is None or action is None:
-                    continue
-                    
-                player_idx = player_id - 1  # Convert to 0-based index
-                
-                if player_idx < 0 or player_idx >= 4:
-                    continue
-                    
-                if not self.players_alive[player_idx]:
-                    continue
-                
-                # Process the event based on action
-                if action == 'left':
-                    if player_idx in [0, 2]:  # Top/Bottom
-                        self.paddles[player_idx].move("left", self.paddles[player_idx].hit_distance, self.GAME_RECT)
-                elif action == 'right':
-                    if player_idx in [0, 2]:  # Top/Bottom
-                        self.paddles[player_idx].move("right", self.paddles[player_idx].hit_distance, self.GAME_RECT)
-                elif action == 'up':
-                    if player_idx in [1, 3]:  # Right/Left
-                        self.paddles[player_idx].move("up", self.paddles[player_idx].hit_distance, self.GAME_RECT)
-                elif action == 'down':
-                    if player_idx in [1, 3]:  # Right/Left
-                        self.paddles[player_idx].move("down", self.paddles[player_idx].hit_distance, self.GAME_RECT)
-                elif action == 'hit' and self.game_started and self.paddles[player_idx].hit_timer == 0:
-                    self.paddles[player_idx].hit()
-                elif action == 'start' and not self.game_started:
-                    self.game_started = True
-                elif action == 'restart' and self.game_over:
-                    self.reset_game()
+        """Process events from middleware controllers."""
+        print("\n@@@ PONG DEBUG: process_middleware_events called @@@")
         
+        if not self.event_controller:
+            print("@@@ PONG DEBUG: No event controller found @@@")
+            return
+        
+        try:
+            # Get new events from middleware
+            print("@@@ PONG DEBUG: Getting events from event controller @@@")
+            events = self.event_controller.get_events()
+            
+            # If there are events, process them
+            if events:
+                print(f"@@@ PONG DEBUG: Processing {len(events)} middleware events @@@")
+                
+                for event in events:
+                    print(f"@@@ PONG DEBUG: Processing event: {event} @@@")
+                    
+                    # Process based on event type or format
+                    if "game_action" in event and "controller_action" in event:
+                        player_id = event.get("player_id")
+                        controller_action = event.get("controller_action")
+                        
+                        print(f"@@@ PONG DEBUG: Player {player_id}, action {controller_action} @@@")
+                        
+                        # Process the event based on the controller action
+                        if controller_action == "tilt":
+                            raw_direction = event.get("raw_direction")
+                            
+                            print(f"@@@ PONG DEBUG: Tilt {raw_direction} for player {player_id} @@@")
+                            
+                            # Process for each player
+                            if player_id == 0:  # Top player (WASD controls)
+                                if raw_direction == "up" and self.players_alive[0]:
+                                    print("@@@ PONG DEBUG: Player 0 moving LEFT @@@")
+                                    self.paddles[0].start_move("left")
+                                elif raw_direction == "down" and self.players_alive[0]:
+                                    print("@@@ PONG DEBUG: Player 0 moving RIGHT @@@")
+                                    self.paddles[0].start_move("right")
+                                elif raw_direction == "stop" and self.players_alive[0]:
+                                    print("@@@ PONG DEBUG: Player 0 STOPPING @@@")
+                                    self.paddles[0].stop_move("left")
+                                    self.paddles[0].stop_move("right")
+                                    
+                            elif player_id == 1:  # Right player (arrow controls)
+                                if raw_direction == "up" and self.players_alive[1]:
+                                    print("@@@ PONG DEBUG: Player 1 moving UP @@@")
+                                    self.paddles[1].start_move("up")
+                                elif raw_direction == "down" and self.players_alive[1]:
+                                    print("@@@ PONG DEBUG: Player 1 moving DOWN @@@")
+                                    self.paddles[1].start_move("down")
+                                elif raw_direction == "stop" and self.players_alive[1]:
+                                    print("@@@ PONG DEBUG: Player 1 STOPPING @@@")
+                                    self.paddles[1].stop_move("up")
+                                    self.paddles[1].stop_move("down")
+                                    
+                            elif player_id == 2:  # Bottom player (IJKL controls)
+                                if raw_direction == "up" and self.players_alive[2]:
+                                    print("@@@ PONG DEBUG: Player 2 moving RIGHT @@@")
+                                    self.paddles[2].start_move("right")
+                                elif raw_direction == "down" and self.players_alive[2]:
+                                    print("@@@ PONG DEBUG: Player 2 moving LEFT @@@")
+                                    self.paddles[2].start_move("left")
+                                elif raw_direction == "stop" and self.players_alive[2]:
+                                    print("@@@ PONG DEBUG: Player 2 STOPPING @@@")
+                                    self.paddles[2].stop_move("left")
+                                    self.paddles[2].stop_move("right")
+                                    
+                            elif player_id == 3:  # Left player (YUXB controls)
+                                if raw_direction == "up" and self.players_alive[3]:
+                                    print("@@@ PONG DEBUG: Player 3 moving UP @@@")
+                                    self.paddles[3].start_move("up")
+                                elif raw_direction == "down" and self.players_alive[3]:
+                                    print("@@@ PONG DEBUG: Player 3 moving DOWN @@@")
+                                    self.paddles[3].start_move("down")
+                                elif raw_direction == "stop" and self.players_alive[3]:
+                                    print("@@@ PONG DEBUG: Player 3 STOPPING @@@")
+                                    self.paddles[3].stop_move("up")
+                                    self.paddles[3].stop_move("down")
+                        
+                        elif controller_action == "button":
+                            # Trigger hit if player exists, is active, and it's past the cooldown
+                            if 0 <= player_id < len(self.players_alive) and self.players_alive[player_id]:
+                                if self.game_started and self.paddles[player_id].hit_timer == 0:
+                                    print(f"@@@ PONG DEBUG: Player {player_id} HIT @@@")
+                                    self.paddles[player_id].hit()
+                    else:
+                        # Fallback for unrecognized event formats
+                        print(f"@@@ PONG DEBUG: Unrecognized event format: {event} @@@")
+            else:
+                print("@@@ PONG DEBUG: No events to process @@@")
         except Exception as e:
-            print(f"Error processing middleware events: {e}")
+            print(f"@@@ PONG DEBUG: Error processing middleware events: {e} @@@")
             import traceback
             traceback.print_exc()
     
     def run_frame(self):
         """Run a single frame of the game. Returns True if the game should continue, False if it should end."""
+        print("\n### PONG DEBUG: run_frame method called ###")
+        
         try:
             # Get events
             events = pygame.event.get()
@@ -747,39 +825,12 @@ class PongGame:
                             self.ball.game_started = True
             
             # Handle external events if we have them
-            if self.event_handler is not None:
+            if self.event_controller is not None:
                 try:
-                    external_events = []
-                    
-                    # Get events from the middleware
-                    if callable(self.event_handler):
-                        # It's a function we can call
-                        external_events = self.event_handler()
-                    elif hasattr(self.event_handler, 'get_events') and callable(self.event_handler.get_events):
-                        # It has a get_events method
-                        external_events = self.event_handler.get_events()
-                    elif isinstance(self.event_handler, list):
-                        # It's already a list of events
-                        external_events = self.event_handler
-                    
-                    # Check for win screen interaction from external events
-                    if hasattr(self, 'show_win_screen') and self.show_win_screen and self.game_over:
-                        for ext_event in external_events:
-                            # Any button press on win screen returns the winner
-                            if isinstance(ext_event, dict) and (ext_event.get('type') == 'KEYDOWN' or ext_event.get('action') in ['select', 'hit', 'shoot']):
-                                print(f"External event on win screen. Returning winner: {self.winner}")
-                                if not self.win_sound_played and self.win_sound:
-                                    self.win_sound.play()
-                                    self.win_sound_played = True
-                                
-                                # Return after a short delay to let the win sound play
-                                pygame.time.delay(200)
-                                # Stop the win sound before returning
-                                pygame.mixer.stop()
-                                return self.winner
-                    
+                    print("### PONG DEBUG: About to process middleware events ###")
                     # Process regular middleware events if not on win screen
                     self.process_middleware_events()
+                    print("### PONG DEBUG: Finished processing middleware events ###")
                 except Exception as e:
                     print(f"Error processing middleware events: {e}")
             
@@ -829,14 +880,10 @@ class PongGame:
     
     def run(self):
         """Run the main game loop"""
-        print("Starting Pong game run method")
+        print("Starting Pong game")
         if not self.initialized and not self.initialize(self.player_count):
             print("Failed to initialize Pong game")
             return -1
-        
-        print(f"Initialization successful. game_started={self.game_started}, player_count={self.player_count}")
-        print(f"Players alive: {self.players_alive}")
-        print(f"Player lives: {self.player_lives}")
         
         self.running = True
         winner = -1
@@ -845,7 +892,7 @@ class PongGame:
         pygame.display.flip()
         
         try:
-            print("Entering main game loop")
+            print("Game started - waiting for controller events")
             frame_count = 0
             
             # Force Pong game to start automatically
@@ -853,33 +900,23 @@ class PongGame:
             if hasattr(self, 'ball') and self.ball is not None:
                 self.ball.game_started = True
                 
-            # Create a wait timer to ensure we see the game before proceeding
-            start_time = pygame.time.get_ticks()
-            
             while self.running:
-                # Print a heartbeat message every 60 frames for debugging
-                frame_count += 1
-                if frame_count % 60 == 0:
-                    print(f"Game still running - frame {frame_count}")
-                
                 # Process events first
                 events = pygame.event.get()
+                
                 for event in events:
                     if event.type == pygame.QUIT:
                         self.running = False
-                        print("Quit event received")
                         pygame.mixer.music.stop()
                         return -1
                     elif event.type == pygame.KEYDOWN:
                         if event.key == pygame.K_ESCAPE:
                             self.running = False
-                            print("Escape key pressed")
                             pygame.mixer.music.stop()
                             return -1
                         
                         # Add direct win screen key press handling here
                         elif self.game_over and hasattr(self, 'show_win_screen') and self.show_win_screen:
-                            print(f"Key pressed on win screen in main loop. Returning winner: {self.winner}")
                             # Play win sound if not already played
                             if not self.win_sound_played and self.win_sound:
                                 self.win_sound.play()
@@ -890,38 +927,6 @@ class PongGame:
                             # Stop any sounds before returning
                             pygame.mixer.stop()
                             return self.winner
-                
-                # Handle middleware events for win screen if applicable
-                if self.game_over and hasattr(self, 'show_win_screen') and self.show_win_screen and self.event_handler is not None:
-                    try:
-                        # Get middleware events
-                        middleware_events = []
-                        if callable(self.event_handler):
-                            middleware_events = self.event_handler()
-                        elif hasattr(self.event_handler, 'get_events') and callable(self.event_handler.get_events):
-                            middleware_events = self.event_handler.get_events()
-                        elif isinstance(self.event_handler, list):
-                            middleware_events = self.event_handler
-                        
-                        # Check if any middleware event should dismiss the win screen
-                        for ext_event in middleware_events:
-                            if isinstance(ext_event, dict) and (
-                                ext_event.get('type') == 'KEYDOWN' or 
-                                ext_event.get('action') in ['select', 'hit', 'shoot', 'up', 'down']
-                            ):
-                                print(f"Middleware event detected on win screen: {ext_event}")
-                                # Play win sound if not already played
-                                if not self.win_sound_played and self.win_sound:
-                                    self.win_sound.play()
-                                    self.win_sound_played = True
-                                    # Short delay to let sound start
-                                    pygame.time.delay(200)
-                                
-                                # Stop any sounds before returning
-                                pygame.mixer.stop()
-                                return self.winner
-                    except Exception as e:
-                        print(f"Error processing middleware events on win screen: {e}")
                 
                 # Call run_frame but don't exit loop if it returns None (continue game)
                 result = self.run_frame()
@@ -951,10 +956,9 @@ class PongGame:
         
         # Stop the music before exiting
         pygame.mixer.music.stop()
-        print(f"Game finished. Returning winner: {winner}")
         
         # Make sure we don't quit pygame if it's being managed externally
-        if self.event_handler is None:
+        if self.event_controller is None:
             pygame.quit()
             
         return winner
@@ -1031,6 +1035,20 @@ class PongGame:
 # Fix the run_pong function to prevent random endings and ensure the game starts properly
 def run_pong(screen=None, player_count=4, external_events=None):
     print("Starting Pong game")
+    print(f"External events type: {type(external_events)}")
+    
+    # Print info about the external_events
+    if callable(external_events):
+        print("External events is a callable function")
+    elif hasattr(external_events, 'get_events') and callable(external_events.get_events):
+        print("External events has a get_events method")
+    elif isinstance(external_events, list):
+        print("External events is a list")
+    elif external_events is None:
+        print("WARNING: No external events provided")
+    else:
+        print(f"Unknown type of external events: {type(external_events)}")
+    
     game = PongGame(screen, player_count, external_events)
     
     # Make sure the game starts automatically without requiring a space press

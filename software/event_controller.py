@@ -10,6 +10,7 @@ class EventController:
         self.socket = None
         self.running = False
         self.events = []
+        self.latest_events = {}  # Dictionary to track the latest event for each player
         self.lock = threading.Lock()
     
     def start(self):
@@ -45,8 +46,20 @@ class EventController:
                         try:
                             event_data = json.loads(data)
                             print(f"Event controller received: {event_data}")  # Debug print
+                            
                             with self.lock:
+                                # Add to regular events list for debug/backward compatibility
                                 self.events.append(event_data)
+                                
+                                # Store/update the latest event for this player
+                                player_id = event_data.get('player_id')
+                                if player_id is not None:
+                                    # Add timestamp for processing management
+                                    event_data['received_at'] = time.time()
+                                    # Store as the latest event for this player
+                                    self.latest_events[player_id] = event_data
+                                    print(f"Updated latest event for player {player_id}: {event_data.get('controller_action')} - {event_data.get('raw_direction')}")
+                                    
                         except json.JSONDecodeError:
                             print(f"Received invalid JSON data: {data}")
                 except socket.timeout:
@@ -58,12 +71,45 @@ class EventController:
             
             time.sleep(0.01)  # Small delay to prevent CPU hogging
     
-    def get_events(self):
-        """Get and clear the current events"""
+    def peek_events(self):
+        """Get current events without clearing them - useful for debugging"""
         with self.lock:
             events = self.events.copy()
-            self.events.clear()
         return events
+    
+    def get_events(self):
+        """Get the current events - returns ONLY the latest event for each player"""
+        with self.lock:
+            current_time = time.time()
+            
+            # Return only the latest events (one per player)
+            events = list(self.latest_events.values())
+            
+            # Track which events we're returning now
+            for event in events:
+                event['processed_at'] = current_time
+            
+            # Keep events list manageable size (for debug/compatibility)
+            self.events = [e for e in self.events if current_time - e.get('received_at', 0) < 2.0]
+            
+            # Clear the latest events dictionary - will be repopulated with new events
+            self.latest_events.clear()
+            
+        # Only log if events were found
+        if events:
+            print(f"Event controller returning {len(events)} events")
+        return events
+    
+    def flush_old_events(self):
+        """Remove events that have been processed for a certain amount of time"""
+        current_time = time.time()
+        expiration_time = 2.0  # Keep events for 2 seconds after first read
+        
+        with self.lock:
+            # Filter out events that have been around too long
+            self.events = [event for event in self.events 
+                          if 'processed_at' not in event or 
+                             current_time - event['processed_at'] < expiration_time]
     
     def stop(self):
         """Stop the event controller"""
