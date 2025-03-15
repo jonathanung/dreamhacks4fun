@@ -95,14 +95,14 @@ class PongGame:
             try:
                 dims = calculate_game_dimensions(self.WIDTH, self.HEIGHT)
                 self.ball_radius = dims.get('ball_radius', 15)
-                self.ball_speed = dims.get('ball_speed', 5)
+                self.ball_speed = dims.get('ball_speed', 7.5)
                 self.paddle_hit_distance = dims.get('paddle_hit_distance', 10)
                 self.fever_orb_radius = dims.get('fever_orb_radius', 30)
                 print(f"Ball radius: {self.ball_radius}, Ball speed: {self.ball_speed}")
             except Exception as e:
                 print(f"Error calculating dimensions: {e}")
                 self.ball_radius = 15
-                self.ball_speed = 5
+                self.ball_speed = 7.5
                 self.paddle_hit_distance = 10
                 self.fever_orb_radius = 30
             

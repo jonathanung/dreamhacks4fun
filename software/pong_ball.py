@@ -7,7 +7,7 @@ from pong_utils import *
 
 # Constants (if not defined elsewhere)
 BALL_RESET_DURATION = 60  # Number of frames to wait before moving after reset
-BALL_SPEED_INCREMENT = 0.5 # Speed increase after each paddle hit
+BALL_SPEED_INCREMENT = 0.75 # Speed increase after each paddle hit (increased by 1.5x, was 0.5)
 BALL_MAX_SPEED = 1000  # Maximum ball speed
 
 class Ball:

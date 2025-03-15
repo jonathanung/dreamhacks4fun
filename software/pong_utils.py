@@ -24,7 +24,7 @@ PADDLE_HIT_DISTANCE_PERCENT = 0.03  # 3% of game area width
 # Fixed settings
 PLAYER_STARTING_LIVES = 3
 BALL_RESET_DURATION = 60
-BALL_SPEED_INCREMENT = 0.2
+BALL_SPEED_INCREMENT = 0.3
 BALL_MAX_SPEED = 100
 COUNTDOWN_DURATION = 5
 FEVER_DURATION = 10
@@ -49,7 +49,7 @@ def calculate_game_dimensions(screen_width, screen_height):
     
     # Calculate speeds
     paddle_speed = int(game_size * PADDLE_SPEED_PERCENT)
-    ball_speed = paddle_speed * 0.7  # Ball slightly slower than paddle
+    ball_speed = paddle_speed * 1.05  # Ball 1.5 times faster than original (was 0.7)
     
     # Calculate hit distance
     paddle_hit_distance = int(game_size * PADDLE_HIT_DISTANCE_PERCENT)
